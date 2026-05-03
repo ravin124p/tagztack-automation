@@ -3,6 +3,7 @@ import React from 'react';
 const ITEMS = [
   { id: 'tag-inventory', label: 'Tag Inventory', icon: '◧' },
   { id: 'automation-testing', label: 'Automation Testing', icon: '✓' },
+  { id: 'automation-journey', label: 'Automation Journey', icon: '⇒' },
 ];
 
 export default function OpSidebar({ activeNav, onNavChange }) {

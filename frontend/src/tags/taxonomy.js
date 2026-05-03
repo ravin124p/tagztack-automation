@@ -866,8 +866,20 @@ export const VENDORS = [
     category: 'Advertising',
     color: '#0072CE',
     icon: 'Im',
-    match: (u) => /impact(radius|-ad)/.test(u.host) || u.host === 'd.impactradius-event.com',
-    account: (u) => u.pathname.split('/').filter(Boolean)[0] || null,
+    match: (u) =>
+      /impact(radius|-ad)/.test(u.host) ||
+      u.host === 'd.impactradius-event.com' ||
+      /\.pxf\.io$/.test(u.host) ||      // Impact's white-label tracking subdomain (e.g. usbank.pxf.io)
+      u.host === 'pxf.io',
+    account: (u) => {
+      // pxf.io URLs: account is the subdomain prefix (e.g. "usbank")
+      const pxfMatch = u.host.match(/^([^.]+)\.pxf\.io$/);
+      if (pxfMatch) return pxfMatch[1];
+      // /xur/<id> or other Impact paths: use the trailing numeric id if present
+      const xur = u.pathname.match(/\/xur\/(\d+)/);
+      if (xur) return xur[1];
+      return u.pathname.split('/').filter(Boolean)[0] || null;
+    },
   },
 
   // --- Schema / SEO -------------------------------------------------------

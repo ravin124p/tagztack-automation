@@ -3,6 +3,7 @@ import OpSidebar from './components/OpSidebar.jsx';
 import OpHeader from './components/OpHeader.jsx';
 import TagsView from './components/TagsView.jsx';
 import AutomationTestingView from './components/AutomationTestingView.jsx';
+import JourneyView from './components/JourneyView.jsx';
 
 export default function App() {
   const [url, setUrl] = useState('https://example.com');
@@ -93,7 +94,7 @@ export default function App() {
               isCapturing={isCapturing}
               onCaptureRequested={runCapture}
             />
-          ) : (
+          ) : activeNav === 'automation-testing' ? (
             <AutomationTestingView
               capture={activeCapture}
               urlInput={url}
@@ -101,6 +102,8 @@ export default function App() {
               isCapturing={isCapturing}
               onCaptureRequested={runCapture}
             />
+          ) : (
+            <JourneyView />
           )}
         </div>
       </div>

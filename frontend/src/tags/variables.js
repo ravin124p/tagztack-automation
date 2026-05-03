@@ -66,6 +66,7 @@ const EXTRACTORS = {
   'onetrust': onetrustExtract,
   'hubspot': simpleQueryExtract,
   'invoca': invocaExtract,
+  'impact': impactExtract,
   'glance': simpleQueryExtract,
   'rubicon': simpleQueryExtract,
   'appnexus': simpleQueryExtract,
@@ -473,6 +474,84 @@ function onetrustExtract(u) {
 
 function invocaExtract(u) {
   return paramsAsVars(u, 'Invoca');
+}
+
+// Impact Radius. The "/io" path is Impact's conversion-event endpoint; we
+// detect it and tag the captured payload accordingly. Known Impact field
+// names get human labels; everything else passes through verbatim.
+const IMPACT_LABELS = {
+  CampaignId: 'Campaign ID',
+  MediaPartnerId: 'Media Partner ID',
+  MediaPartnerPropertyId: 'Media Partner Property ID',
+  IRClickID: 'Click ID (IRClickID)',
+  irclickid: 'Click ID',
+  EventTypeCode: 'Event Type Code',
+  EventTypeId: 'Event Type ID',
+  OrderId: 'Order ID',
+  OrderPromoCode: 'Promo Code',
+  CustomerId: 'Customer ID',
+  CustomerEmail: 'Customer Email',
+  CustomerStatus: 'Customer Status',
+  OrderAmount: 'Order Amount',
+  OrderDiscount: 'Order Discount',
+  OrderSubtotal: 'Order Subtotal',
+  CurrencyCode: 'Currency',
+  ConversionDate: 'Conversion Date',
+  ItemSku: 'Item SKU',
+  ItemName: 'Item Name',
+  ItemQuantity: 'Item Quantity',
+  ItemPrice: 'Item Price',
+  ItemCategory: 'Item Category',
+  Note: 'Note',
+};
+
+function impactExtract(u, body) {
+  const out = [];
+  const path = u.pathname;
+  // Recognize Impact's known endpoint patterns. /io and /xur are conversion
+  // tracking; /click is click tracking; pxf.io subdomain alone is enough to
+  // mark it as Impact even with no specific path.
+  const endpointType = /(^|\/)io(\/|$)/.test(path) ? 'conversion (/io)'
+    : /\/xur\//.test(path) ? 'conversion (/xur)'
+    : /\/click(\/|$)/.test(path) ? 'click'
+    : /\.pxf\.io$/.test(u.host) ? 'pxf.io tracker'
+    : null;
+
+  out.push(v('Impact', 'Host', u.host));
+  out.push(v('Impact', 'Endpoint', path));
+  if (endpointType) out.push(v('Impact', 'Event type', endpointType));
+
+  const group = endpointType ? `Impact ${endpointType}` : 'Impact';
+
+  for (const [k, val] of u.searchParams.entries()) {
+    const label = IMPACT_LABELS[k] || k;
+    out.push(v(group, label, val));
+  }
+
+  if (body) {
+    const trimmed = String(body).trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      const j = safeJson(trimmed);
+      if (j && typeof j === 'object') {
+        for (const [k, val] of Object.entries(j)) {
+          const label = IMPACT_LABELS[k] || k;
+          out.push(v(group + ' (body)', label, typeof val === 'object' ? JSON.stringify(val) : val));
+        }
+      }
+    } else {
+      // form-urlencoded
+      trimmed.split('&').forEach((kv) => {
+        const eq = kv.indexOf('=');
+        if (eq < 0) return;
+        const k = decodeURIComponent(kv.slice(0, eq));
+        const val = decodeURIComponent(kv.slice(eq + 1));
+        const label = IMPACT_LABELS[k] || k;
+        out.push(v(group + ' (body)', label, val));
+      });
+    }
+  }
+
+  return out;
 }
 
 export function aggregateVariables(extractedPerRequest) {
