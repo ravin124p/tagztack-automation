@@ -1,5 +1,28 @@
 const { chromium } = require('playwright');
 
+// Browser fingerprints we rotate through per journey. Device-fingerprinting
+// vendors (iOvation, Akamai Bot Manager, etc.) recognize repeat visitors by
+// {user agent + viewport + locale + timezone + canvas/font hash}. We can't
+// fake the canvas/font hash without a more invasive browser config, but
+// rotating the easily-observable axes is enough to look like a different
+// machine for most session-locking. Used by both runJourney variants.
+const FINGERPRINTS = [
+  { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+    viewport: { width: 1440, height: 900 }, locale: 'en-US', timezoneId: 'America/Los_Angeles', deviceScaleFactor: 2 },
+  { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    viewport: { width: 1920, height: 1080 }, locale: 'en-US', timezoneId: 'America/Chicago', deviceScaleFactor: 1 },
+  { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 }, locale: 'en-US', timezoneId: 'America/New_York', deviceScaleFactor: 1 },
+  { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    viewport: { width: 1536, height: 864 }, locale: 'en-US', timezoneId: 'America/Denver', deviceScaleFactor: 1 },
+  { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.2277.83',
+    viewport: { width: 1680, height: 1050 }, locale: 'en-US', timezoneId: 'America/Phoenix', deviceScaleFactor: 1 },
+];
+
+function pickFingerprint() {
+  return FINGERPRINTS[Math.floor(Math.random() * FINGERPRINTS.length)];
+}
+
 async function runJourney(definition, options = {}) {
   const {
     onStepStart = () => {},
@@ -9,12 +32,31 @@ async function runJourney(definition, options = {}) {
   const headless = !!definition.headless;     // default false (visible)
   const slowMo = definition.slowMo != null ? definition.slowMo : (headless ? 0 : 250);
 
-  const browser = await chromium.launch({ headless, slowMo });
+  // Launch a fresh Chromium per journey with HTTP cache disabled. Combined
+  // with newContext() below (which always starts with no cookies / storage
+  // / serviceWorkers), this guarantees every journey runs as a brand-new
+  // anonymous visitor — important for tag QA so opt-outs, cookies, or
+  // cached scripts from previous runs don't suppress beacons.
+  const browser = await chromium.launch({
+    headless,
+    slowMo,
+    args: [
+      '--disable-application-cache', '--disk-cache-size=0', '--media-cache-size=0',
+      '--incognito',
+    ],
+  });
+
+  // Randomize the browser fingerprint per journey so device-recognition tools
+  // (iOvation, Akamai Bot Manager, etc.) don't tag us as a returning visitor
+  // when a previous run got the session stuck on an error page.
+  const fingerprint = pickFingerprint();
   const context = await browser.newContext({
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 800 },
+    userAgent: fingerprint.userAgent,
+    viewport: fingerprint.viewport,
+    locale: fingerprint.locale,
+    timezoneId: fingerprint.timezoneId,
+    deviceScaleFactor: fingerprint.deviceScaleFactor,
+    extraHTTPHeaders: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
   });
   const page = await context.newPage();
 
@@ -789,6 +831,12 @@ async function autoWalkJourney(definition, options = {}) {
   const slowMo = definition.slowMo != null ? definition.slowMo : (headless ? 0 : 250);
   let maxSteps = definition.maxSteps || 50;
   const stepExtension = definition.stepExtension || 25;
+  // After each click we wait for `load` and an 8s networkidle attempt — but
+  // SPAs often don't refire `load` and can finish networkidle before late
+  // page-view beacons (Adobe Analytics, GA4, FB Pixel etc.) actually fire.
+  // settleMs is a fixed extra pause to give those tags time to land before
+  // we close the step's capture window. Default 3000ms.
+  const settleMs = definition.settleMs != null ? definition.settleMs : 3000;
   const onStep = typeof options.onStep === 'function' ? options.onStep : () => {};
   // Interactive mode: when the browser is visible, after each page loads we
   // ask the user how to handle that page — Auto-fill, Manual, or Stop. The
@@ -797,7 +845,24 @@ async function autoWalkJourney(definition, options = {}) {
   const interactive = headless ? false : (definition.interactive !== false);
   const stepThrough = headless ? false : (definition.stepThrough !== false);
 
-  const browser = await chromium.launch({ headless, slowMo });
+  // Launch a fresh Chromium per journey with HTTP cache disabled. Combined
+  // with newContext() below (which always starts with no cookies / storage
+  // / serviceWorkers), this guarantees every journey runs as a brand-new
+  // anonymous visitor — important for tag QA so opt-outs, cookies, or
+  // cached scripts from previous runs don't suppress beacons.
+  const browser = await chromium.launch({
+    headless,
+    slowMo,
+    args: [
+      '--disable-application-cache', '--disk-cache-size=0', '--media-cache-size=0',
+      '--incognito',
+    ],
+  });
+
+  // Randomize the browser fingerprint per journey so device-recognition tools
+  // (iOvation, Akamai Bot Manager, etc.) don't tag us as a returning visitor
+  // when a previous run got the session stuck on an error page.
+  const fingerprint = pickFingerprint();
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 800 },
@@ -935,6 +1000,7 @@ async function autoWalkJourney(definition, options = {}) {
         // capturing and before the next iteration's overlay tries to inject.
         await page.waitForLoadState('load', { timeout: 20000 }).catch(() => {});
         await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+        if (settleMs > 0) await page.waitForTimeout(settleMs);
 
         const newUrl = page.url();
         const stepName = (await safeTitle(page)) || `Step ${i} (manual)`;
@@ -1037,6 +1103,9 @@ async function autoWalkJourney(definition, options = {}) {
         clickPrimaryButton(page, button.text),
       ]);
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+      // Extra fixed settle so SPA-fired page-view beacons (Adobe, GA4, FB,
+      // Pinterest) have time to land before we close this step's capture.
+      if (settleMs > 0) await page.waitForTimeout(settleMs);
     } catch (err) {
       stepError = `click "${button.text}" failed: ${err.message}`;
     }

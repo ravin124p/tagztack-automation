@@ -10,6 +10,7 @@ export default function JourneyView() {
   const [url, setUrl] = useState('');
   const [headless, setHeadless] = useState(false);
   const [maxSteps, setMaxSteps] = useState(50);
+  const [settleSeconds, setSettleSeconds] = useState(3);
   const [stepThrough, setStepThrough] = useState(true);
   const [fieldDataText, setFieldDataText] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -61,7 +62,13 @@ export default function JourneyView() {
       catch (e) { setError('JSON parse error: ' + e.message); return; }
     } else {
       if (!url.trim()) { setError('Enter a URL to start the journey'); return; }
-      body = { url: url.trim(), headless, maxSteps, stepThrough: !headless && stepThrough };
+      body = {
+        url: url.trim(),
+        headless,
+        maxSteps,
+        settleMs: Math.max(0, Math.min(15, settleSeconds)) * 1000,
+        stepThrough: !headless && stepThrough,
+      };
       if (fieldDataText.trim()) {
         try { body.fieldData = JSON.parse(fieldDataText); }
         catch (e) { setError('Field overrides JSON parse error: ' + e.message); return; }
@@ -161,6 +168,8 @@ export default function JourneyView() {
           setStepThrough={setStepThrough}
           maxSteps={maxSteps}
           setMaxSteps={setMaxSteps}
+          settleSeconds={settleSeconds}
+          setSettleSeconds={setSettleSeconds}
           fieldDataText={fieldDataText}
           setFieldDataText={setFieldDataText}
           advancedOpen={advancedOpen}
@@ -192,6 +201,7 @@ export default function JourneyView() {
 function DefineMode({
   url, setUrl, headless, setHeadless, stepThrough, setStepThrough,
   maxSteps, setMaxSteps,
+  settleSeconds, setSettleSeconds,
   fieldDataText, setFieldDataText,
   advancedOpen, setAdvancedOpen, advancedJson, setAdvancedJson,
   onRun, isRunning, error,
@@ -239,6 +249,17 @@ function DefineMode({
               max={100}
               value={maxSteps}
               onChange={(e) => setMaxSteps(Math.max(1, Math.min(100, Number(e.target.value) || 50)))}
+            />
+          </label>
+          <label className="op-journey-numfield" title="Extra delay after each click to give SPA-fired tags (Adobe, GA4, FB Pixel, Pinterest…) time to fire before we close the step's capture window. 3s catches most page-view beacons.">
+            Settle (s)
+            <input
+              type="number"
+              min={0}
+              max={15}
+              step={0.5}
+              value={settleSeconds}
+              onChange={(e) => setSettleSeconds(Math.max(0, Math.min(15, Number(e.target.value) || 3)))}
             />
           </label>
           <button
